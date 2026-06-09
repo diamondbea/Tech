@@ -1,0 +1,27 @@
+{
+  "plugins": [
+    "supermemoryai/claude-supermemory"
+  ],
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/plugins/claude-supermemory/scripts/session-start.js"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ~/.claude/plugins/claude-supermemory/scripts/stop.js"
+          }
+        ]
+      }
+    ]
+  }
+}

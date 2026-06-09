@@ -1,14 +1,11 @@
 {
-  "plugins": [
-    "supermemoryai/claude-supermemory"
-  ],
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.claude/plugins/claude-supermemory/scripts/session-start.js"
+            "command": "node .claude/hooks/context-hook.cjs"
           }
         ]
       }
@@ -18,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.claude/plugins/claude-supermemory/scripts/stop.js"
+            "command": "node .claude/hooks/summary-hook.cjs"
           }
         ]
       }

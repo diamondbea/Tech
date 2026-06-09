@@ -1,0 +1,7 @@
+{
+  "name": "claude-supermemory-hooks",
+  "private": true,
+  "dependencies": {
+    "supermemory": "^4.0.0"
+  }
+}

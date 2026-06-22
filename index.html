@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Studio — Create · Animate · Generate</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <div class="logo-mark">
+          <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+            <polygon points="13,1 25,8 25,18 13,25 1,18 1,8" fill="url(#hex)" opacity="0.15"/>
+            <polygon points="13,4 22,9.5 22,16.5 13,22 4,16.5 4,9.5" fill="url(#hex)" opacity="0.25"/>
+            <polygon points="13,8 19,11.5 19,14.5 13,18 7,14.5 7,11.5" fill="url(#hex)"/>
+            <defs>
+              <linearGradient id="hex" x1="1" y1="1" x2="25" y2="25" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#7c3aed"/>
+                <stop offset="1" stop-color="#ec4899"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <span class="logo-text">AI Studio</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-tab="image-gen">
+        <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clip-rule="evenodd"/>
+        </svg>
+        <span>Image Generation</span>
+      </button>
+      <button class="nav-item" data-tab="img-animate">
+        <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zm12.553 1.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z"/>
+        </svg>
+        <span>Image → Animation</span>
+      </button>
+      <button class="nav-item" data-tab="text-video">
+        <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/>
+        </svg>
+        <span>Text → Video</span>
+      </button>
+      <button class="nav-item" data-tab="img-edit">
+        <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
+        </svg>
+        <span>Image Editing</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="settings-btn" id="settingsBtn">
+        <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15">
+          <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/>
+        </svg>
+        <span>API Settings</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── Main content ── -->
+  <main class="main-content">
+
+    <!-- IMAGE GENERATION -->
+    <section class="tab-panel active" id="tab-image-gen">
+      <div class="panel-header">
+        <h1>Image Generation</h1>
+        <p>Create stunning, photorealistic images from text descriptions using FLUX, SDXL, or DALL·E 3</p>
+      </div>
+      <div class="panel-body">
+        <div class="controls-panel">
+          <div class="form-group">
+            <label for="imgPrompt">Prompt</label>
+            <textarea id="imgPrompt" rows="4" placeholder="A hyper-realistic portrait of a woman with silver hair standing in a neon-lit cyberpunk city at night, cinematic lighting, 8K…"></textarea>
+          </div>
+          <div class="form-group">
+            <label for="imgNegPrompt">Negative Prompt <span class="label-opt">optional</span></label>
+            <textarea id="imgNegPrompt" rows="2" placeholder="blurry, low quality, distorted, watermark…"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="imgStyle">Style</label>
+              <select id="imgStyle">
+                <option value="realistic">Photorealistic</option>
+                <option value="cinematic">Cinematic</option>
+                <option value="artistic">Artistic</option>
+                <option value="anime">Anime</option>
+                <option value="3d">3D Render</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="imgAspect">Aspect Ratio</label>
+              <select id="imgAspect">
+                <option value="1:1">Square 1:1</option>
+                <option value="16:9">Wide 16:9</option>
+                <option value="9:16">Portrait 9:16</option>
+                <option value="4:3">Classic 4:3</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="imgSteps">Quality</label>
+              <select id="imgSteps">
+                <option value="4">Fast</option>
+                <option value="8" selected>Balanced</option>
+                <option value="25">High</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Count</label>
+              <div class="chip-group" id="imgCountChips">
+                <button class="chip" onclick="selectChip('imgCountChips',this);state.imgCount=1">1</button>
+                <button class="chip active" onclick="selectChip('imgCountChips',this);state.imgCount=2">2</button>
+                <button class="chip" onclick="selectChip('imgCountChips',this);state.imgCount=4">4</button>
+              </div>
+            </div>
+          </div>
+          <button class="btn-gen" id="generateImgBtn" onclick="generateImage()">
+            <span class="btn-spark">✦</span> Generate Images
+          </button>
+        </div>
+        <div class="output-panel" id="imgOutput">
+          <div class="output-ph">
+            <div class="ph-icon">🎨</div>
+            <p>Your generated images will appear here</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- IMAGE → ANIMATION -->
+    <section class="tab-panel" id="tab-img-animate">
+      <div class="panel-header">
+        <h1>Image → Animation</h1>
+        <p>Bring any still image to life with realistic AI-powered motion using Stable Video Diffusion</p>
+      </div>
+      <div class="panel-body">
+        <div class="controls-panel">
+          <div class="form-group">
+            <label>Source Image</label>
+            <div class="upload-zone" id="animUploadZone">
+              <input type="file" id="animImageFile" accept="image/*" hidden>
+              <div class="upload-inner" id="animUploadInner">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                </svg>
+                <p>Click or drag &amp; drop</p>
+                <span>PNG · JPG · WEBP · max 10 MB</span>
+              </div>
+              <img id="animPreview" class="hidden" alt="Source image">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Motion Intensity: <span id="motionVal" class="label-val">127</span></label>
+            <input type="range" id="motionBucket" min="1" max="255" value="127" class="slider"
+              oninput="document.getElementById('motionVal').textContent=this.value">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="animFrames">Frames</label>
+              <select id="animFrames">
+                <option value="14">14 frames</option>
+                <option value="25" selected>25 frames</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>FPS</label>
+              <div class="chip-group" id="fpsChips">
+                <button class="chip" onclick="selectChip('fpsChips',this);state.fps=6">6</button>
+                <button class="chip active" onclick="selectChip('fpsChips',this);state.fps=12">12</button>
+                <button class="chip" onclick="selectChip('fpsChips',this);state.fps=24">24</button>
+              </div>
+            </div>
+          </div>
+          <button class="btn-gen" id="animateBtn" onclick="animateImage()">
+            <span class="btn-spark">✨</span> Animate Image
+          </button>
+        </div>
+        <div class="output-panel" id="animOutput">
+          <div class="output-ph">
+            <div class="ph-icon">🎞️</div>
+            <p>Your animation will appear here</p>
+            <span class="ph-hint">Typically takes 1–3 minutes</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TEXT → VIDEO -->
+    <section class="tab-panel" id="tab-text-video">
+      <div class="panel-header">
+        <h1>Text → Video</h1>
+        <p>Generate realistic video clips from a text description using MiniMax, Wan 2.1, or Luma</p>
+      </div>
+      <div class="panel-body">
+        <div class="controls-panel">
+          <div class="form-group">
+            <label for="videoPrompt">Prompt</label>
+            <textarea id="videoPrompt" rows="4" placeholder="A majestic eagle soaring over snow-capped mountains at golden hour, camera slowly pulling back to reveal the vast landscape, cinematic 4K…"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="videoModel">Model</label>
+              <select id="videoModel">
+                <option value="minimax/video-01">MiniMax Video-01</option>
+                <option value="wan-video/wan2.1-t2v-480p">Wan 2.1 (480p)</option>
+                <option value="luma/photon">Luma Photon</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="videoAspect">Aspect</label>
+              <select id="videoAspect">
+                <option value="16:9">16:9</option>
+                <option value="9:16">9:16</option>
+                <option value="1:1">1:1</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Guidance: <span id="guidanceVal" class="label-val">7</span></label>
+            <input type="range" id="guidanceScale" min="1" max="15" value="7" class="slider"
+              oninput="document.getElementById('guidanceVal').textContent=this.value">
+          </div>
+          <button class="btn-gen" id="videoBtn" onclick="generateVideo()">
+            <span class="btn-spark">🎬</span> Generate Video
+          </button>
+        </div>
+        <div class="output-panel" id="videoOutput">
+          <div class="output-ph">
+            <div class="ph-icon">🎬</div>
+            <p>Your video will appear here</p>
+            <span class="ph-hint">Typically takes 2–5 minutes</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- IMAGE EDITING -->
+    <section class="tab-panel" id="tab-img-edit">
+      <div class="panel-header">
+        <h1>Image Editing</h1>
+        <p>Upscale 4×, remove backgrounds, restore faces, or repaint regions with AI</p>
+      </div>
+      <div class="panel-body">
+        <div class="controls-panel">
+          <div class="form-group">
+            <label>Edit Mode</label>
+            <div class="edit-mode-grid">
+              <button class="edit-mode-btn active" onclick="setEditMode('inpaint',this)"><span>🖌️</span><span>Repaint</span></button>
+              <button class="edit-mode-btn" onclick="setEditMode('upscale',this)"><span>⬆️</span><span>Upscale 4×</span></button>
+              <button class="edit-mode-btn" onclick="setEditMode('remove-bg',this)"><span>✂️</span><span>Remove BG</span></button>
+              <button class="edit-mode-btn" onclick="setEditMode('restore',this)"><span>✨</span><span>Restore</span></button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Image</label>
+            <div class="upload-zone" id="editUploadZone">
+              <input type="file" id="editImageFile" accept="image/*" hidden>
+              <div class="upload-inner" id="editUploadInner">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                </svg>
+                <p>Click to upload</p>
+                <span>PNG · JPG · WEBP</span>
+              </div>
+              <img id="editPreview" class="hidden" alt="Image to edit">
+            </div>
+          </div>
+          <div class="form-group" id="editPromptWrap">
+            <label for="editPrompt">Repaint Instruction</label>
+            <textarea id="editPrompt" rows="3" placeholder="Replace the sky with a dramatic sunset, keep the subject unchanged…"></textarea>
+          </div>
+          <button class="btn-gen" id="editBtn" onclick="editImage()">
+            <span class="btn-spark">🖼️</span> Apply Edit
+          </button>
+        </div>
+        <div class="output-panel" id="editOutput">
+          <div class="output-ph">
+            <div class="ph-icon">🖼️</div>
+            <p>Before &amp; after will appear here</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay hidden" id="settingsModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>⚙️ API Settings</h2>
+      <button class="btn-icon" onclick="closeSettings()" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="info-box">
+        🔒 Your keys are stored only in your browser's localStorage and are sent directly to each AI service — never to any third-party server.
+      </div>
+
+      <div class="form-group">
+        <label>Replicate API Key <span class="badge badge-req">Required</span></label>
+        <div class="key-row">
+          <input type="password" id="replicateKeyInput" placeholder="r8_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+          <button class="btn-eye" onclick="toggleVis('replicateKeyInput')" title="Toggle visibility">👁</button>
+        </div>
+        <span class="form-hint">replicate.com → Account → API tokens · Used for animation, video &amp; editing</span>
+      </div>
+
+      <div class="form-group">
+        <label>Stability AI Key <span class="badge">Optional</span></label>
+        <div class="key-row">
+          <input type="password" id="stabilityKeyInput" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+          <button class="btn-eye" onclick="toggleVis('stabilityKeyInput')" title="Toggle visibility">👁</button>
+        </div>
+        <span class="form-hint">platform.stability.ai · Enables SDXL image generation</span>
+      </div>
+
+      <div class="form-group">
+        <label>OpenAI Key <span class="badge">Optional</span></label>
+        <div class="key-row">
+          <input type="password" id="openaiKeyInput" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+          <button class="btn-eye" onclick="toggleVis('openaiKeyInput')" title="Toggle visibility">👁</button>
+        </div>
+        <span class="form-hint">platform.openai.com · Enables DALL·E 3 image generation</span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-outline" onclick="closeSettings()">Cancel</button>
+      <button class="btn-primary" onclick="saveSettings()">Save Keys</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast hidden" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

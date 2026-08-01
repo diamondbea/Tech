@@ -6,14 +6,12 @@ import base64
 import io
 import logging
 import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
 import httpx
-from telegram import (
-    BotCommand,
-    InputFile,
-    Update,
-)
+from telegram import BotCommand, InputFile, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
@@ -30,14 +28,32 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
+PORT = int(os.environ.get("PORT", 8080))
 REPLICATE_BASE = "https://api.replicate.com/v1"
 
-# In-memory stores (restart clears them — use a DB for production)
-user_keys: dict[int, str] = {}      # uid -> replicate key
-pending_photo: dict[int, str] = {}  # uid -> telegram file_id
+user_keys: dict[int, str] = {}
+pending_photo: dict[int, str] = {}
 
 
-# ─── Key helpers ─────────────────────────────────────────────────────────────
+# ─── Health-check server (keeps Railway happy) ────────────────────────────────
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, *args):
+        pass  # silence access logs
+
+
+def _start_health_server():
+    server = HTTPServer(("0.0.0.0", PORT), _HealthHandler)
+    log.info("Health server listening on port %d", PORT)
+    server.serve_forever()
+
+
+# ─── Key helpers ───────────────────────────────────────────────────────────────────
 
 def get_key(uid: int) -> Optional[str]:
     return user_keys.get(uid)
@@ -54,7 +70,6 @@ def need_key_msg() -> str:
 # ─── Replicate API ────────────────────────────────────────────────────────────
 
 async def replicate_create(model: str, input_data: dict, api_key: str) -> dict:
-    """Create a Replicate prediction and return the completed result."""
     versioned = ":" in model
     url = (
         f"{REPLICATE_BASE}/predictions"
@@ -66,7 +81,6 @@ async def replicate_create(model: str, input_data: dict, api_key: str) -> dict:
         if versioned
         else {"input": input_data}
     )
-
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(
             url,
@@ -78,7 +92,10 @@ async def replicate_create(model: str, input_data: dict, api_key: str) -> dict:
             },
         )
         if not r.is_success:
-            detail = r.json().get("detail", r.text) if r.headers.get("content-type", "").startswith("application/json") else r.text
+            try:
+                detail = r.json().get("detail", r.text)
+            except Exception:
+                detail = r.text
             raise RuntimeError(f"Replicate {r.status_code}: {detail}")
         pred = r.json()
 
@@ -121,7 +138,6 @@ async def fetch_bytes(url: str) -> bytes:
 
 
 async def tg_photo_to_b64(file_id: str, bot) -> str:
-    """Download a Telegram photo and return a base64 data URL."""
     f = await bot.get_file(file_id)
     buf = io.BytesIO()
     await f.download_to_memory(buf)
@@ -133,61 +149,59 @@ async def tg_photo_to_b64(file_id: str, bot) -> str:
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "✦ *AI Studio Bot*\n\n"
-        "Generate images, animations, and videos with AI — powered by Replicate\.\n\n"
+        "*AI Studio Bot*\n\n"
+        "Generate images, animations, and videos with AI.\n\n"
         "*Quick start:*\n"
-        "1\. Get a free API key at replicate\.com\n"
-        "2\. `/setkey r8\_yourkey`\n"
-        "3\. `/imagine a glowing cyberpunk city at night`\n\n"
-        "Type /help to see all commands\.",
-        parse_mode=ParseMode.MARKDOWN_V2,
+        "1. Get a free API key at replicate.com\n"
+        "2. /setkey r8\_yourkey\n"
+        "3. /imagine a glowing cyberpunk city at night\n\n"
+        "Type /help to see all commands.",
+        parse_mode=ParseMode.MARKDOWN,
     )
 
 
-# ─── /help ───────────────────────────────────────────────────────────────────
+# ─── /help ──────────────────────────────────────────────────────────────────
 
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "✦ *AI Studio — Commands*\n\n"
+        "*AI Studio Commands*\n\n"
         "*Setup*\n"
-        "`/setkey r8_xxx` — save your Replicate key\n\n"
+        "/setkey r8\_xxx - save your Replicate key\n\n"
         "*Generate from text*\n"
-        "`/imagine <prompt>` — square image \(FLUX Schnell\)\n"
-        "`/imagine16 <prompt>` — 16:9 landscape\n"
-        "`/imagine9 <prompt>` — 9:16 portrait\n"
-        "`/video <prompt>` — video clip \(MiniMax Video\-01\)\n\n"
-        "*Edit a photo* \(send a photo first, then the command\)\n"
-        "`/animate` — animate it \(Stable Video Diffusion\)\n"
-        "`/upscale` — upscale 4× \(Real\-ESRGAN\)\n"
-        "`/removebg` — remove background \(rembg\)\n"
-        "`/restore` — restore & enhance faces \(GFPGAN\)\n"
-        "`/repaint <instruction>` — repaint with AI\n\n"
-        "All processing uses your own Replicate key\.",
-        parse_mode=ParseMode.MARKDOWN_V2,
+        "/imagine <prompt> - square image\n"
+        "/imagine16 <prompt> - 16:9 landscape\n"
+        "/imagine9 <prompt> - 9:16 portrait\n"
+        "/video <prompt> - video clip\n\n"
+        "*Edit a photo* (send a photo first, then the command)\n"
+        "/animate - animate it\n"
+        "/upscale - upscale 4x\n"
+        "/removebg - remove background\n"
+        "/restore - restore & enhance faces\n"
+        "/repaint <instruction> - repaint with AI",
+        parse_mode=ParseMode.MARKDOWN,
     )
 
 
-# ─── /setkey ─────────────────────────────────────────────────────────────────
+# ─── /setkey ────────────────────────────────────────────────────────────────
 
 async def cmd_setkey(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
-    args = ctx.args
-    if not args:
+    if not ctx.args:
         await update.message.reply_text(
             "Usage: `/setkey r8_yourreplicatekey`",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
-    key = args[0].strip()
+    key = ctx.args[0].strip()
     if not key.startswith("r8_"):
         await update.message.reply_text(
-            "⚠️ That doesn't look like a Replicate key — it should start with `r8_`.",
+            "That doesn't look like a Replicate key - it should start with `r8_`.",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
     user_keys[uid] = key
     await update.message.reply_text(
-        "✅ Key saved! Try `/imagine a sunrise over the mountains`.",
+        "Key saved! Try `/imagine a sunrise over the mountains`.",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -198,29 +212,20 @@ async def cmd_imagine(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
     key = get_key(uid)
     if not key:
-        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN_V2)
+        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN)
         return
-
     prompt = " ".join(ctx.args).strip()
     if not prompt:
         await update.message.reply_text(
-            "Usage: `/imagine a hyper-realistic portrait of a warrior`",
+            "Usage: `/imagine a hyper-realistic warrior portrait`",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
-
-    # Detect aspect ratio variant from the command name
     cmd_name = update.message.text.split()[0].lstrip("/").lower()
-    if "16" in cmd_name:
-        aspect = "16:9"
-    elif "9" in cmd_name:
-        aspect = "9:16"
-    else:
-        aspect = "1:1"
+    aspect = "16:9" if "16" in cmd_name else ("9:16" if "9" in cmd_name else "1:1")
 
-    msg = await update.message.reply_text(f"🎨 Generating {aspect} image…")
+    msg = await update.message.reply_text(f"Generating {aspect} image...")
     await update.effective_chat.send_action(ChatAction.UPLOAD_PHOTO)
-
     try:
         pred = await replicate_create(
             "black-forest-labs/flux-schnell",
@@ -240,27 +245,25 @@ async def cmd_imagine(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await msg.delete()
         await update.message.reply_photo(
             photo=InputFile(io.BytesIO(data), filename="image.webp"),
-            caption=f"✦ {prompt[:900]}",
+            caption=prompt[:900],
         )
     except Exception as e:
         log.exception("imagine failed")
-        await msg.edit_text(f"⚠️ {e}")
+        await msg.edit_text(f"Error: {e}")
 
 
 # ─── Photo handler ────────────────────────────────────────────────────────────
 
 async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
-    # Store highest-res available
     pending_photo[uid] = update.message.photo[-1].file_id
     await update.message.reply_text(
-        "📸 Got it\! Now use:\n"
-        "• `/animate` — bring it to life\n"
-        "• `/upscale` — sharpen & enlarge 4×\n"
-        "• `/removebg` — remove background\n"
-        "• `/restore` — restore & enhance faces\n"
-        "• `/repaint <instruction>` — repaint with AI",
-        parse_mode=ParseMode.MARKDOWN_V2,
+        "Photo received! Now use:\n"
+        "/animate - bring it to life\n"
+        "/upscale - sharpen & enlarge 4x\n"
+        "/removebg - remove background\n"
+        "/restore - restore & enhance faces\n"
+        "/repaint <instruction> - repaint with AI"
     )
 
 
@@ -270,16 +273,14 @@ async def cmd_animate(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
     key = get_key(uid)
     if not key:
-        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN_V2)
+        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN)
         return
     file_id = pending_photo.get(uid)
     if not file_id:
-        await update.message.reply_text("Send a photo first, then use `/animate`.", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text("Send a photo first, then use /animate.")
         return
-
-    msg = await update.message.reply_text("✨ Animating… this takes 1–3 minutes")
+    msg = await update.message.reply_text("Animating... this takes 1-3 minutes")
     await update.effective_chat.send_action(ChatAction.UPLOAD_VIDEO)
-
     try:
         img = await tg_photo_to_b64(file_id, ctx.bot)
         pred = await replicate_create(
@@ -301,11 +302,11 @@ async def cmd_animate(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await msg.delete()
         await update.message.reply_video(
             video=InputFile(io.BytesIO(data), filename="animation.mp4"),
-            caption="✨ Animation complete!",
+            caption="Animation complete!",
         )
     except Exception as e:
         log.exception("animate failed")
-        await msg.edit_text(f"⚠️ {e}")
+        await msg.edit_text(f"Error: {e}")
 
 
 # ─── /video ──────────────────────────────────────────────────────────────────
@@ -314,20 +315,14 @@ async def cmd_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
     key = get_key(uid)
     if not key:
-        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN_V2)
+        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN)
         return
-
     prompt = " ".join(ctx.args).strip()
     if not prompt:
-        await update.message.reply_text(
-            "Usage: `/video an eagle soaring over snowy mountains at golden hour`",
-            parse_mode=ParseMode.MARKDOWN,
-        )
+        await update.message.reply_text("Usage: /video an eagle soaring over mountains")
         return
-
-    msg = await update.message.reply_text("🎬 Generating video… this takes 2–5 minutes")
+    msg = await update.message.reply_text("Generating video... this takes 2-5 minutes")
     await update.effective_chat.send_action(ChatAction.UPLOAD_VIDEO)
-
     try:
         pred = await replicate_create(
             "minimax/video-01",
@@ -341,11 +336,11 @@ async def cmd_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await msg.delete()
         await update.message.reply_video(
             video=InputFile(io.BytesIO(data), filename="video.mp4"),
-            caption=f"🎬 {prompt[:900]}",
+            caption=prompt[:900],
         )
     except Exception as e:
         log.exception("video failed")
-        await msg.edit_text(f"⚠️ {e}")
+        await msg.edit_text(f"Error: {e}")
 
 
 # ─── /upscale ────────────────────────────────────────────────────────────────
@@ -354,16 +349,14 @@ async def cmd_upscale(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
     key = get_key(uid)
     if not key:
-        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN_V2)
+        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN)
         return
     file_id = pending_photo.get(uid)
     if not file_id:
-        await update.message.reply_text("Send a photo first, then use `/upscale`.", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text("Send a photo first, then use /upscale.")
         return
-
-    msg = await update.message.reply_text("⬆️ Upscaling 4×…")
+    msg = await update.message.reply_text("Upscaling 4x...")
     await update.effective_chat.send_action(ChatAction.UPLOAD_PHOTO)
-
     try:
         img = await tg_photo_to_b64(file_id, ctx.bot)
         pred = await replicate_create(
@@ -378,11 +371,11 @@ async def cmd_upscale(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await msg.delete()
         await update.message.reply_photo(
             photo=InputFile(io.BytesIO(data), filename="upscaled.png"),
-            caption="⬆️ Upscaled 4×",
+            caption="Upscaled 4x",
         )
     except Exception as e:
         log.exception("upscale failed")
-        await msg.edit_text(f"⚠️ {e}")
+        await msg.edit_text(f"Error: {e}")
 
 
 # ─── /removebg ───────────────────────────────────────────────────────────────
@@ -391,16 +384,14 @@ async def cmd_removebg(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
     key = get_key(uid)
     if not key:
-        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN_V2)
+        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN)
         return
     file_id = pending_photo.get(uid)
     if not file_id:
-        await update.message.reply_text("Send a photo first, then use `/removebg`.", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text("Send a photo first, then use /removebg.")
         return
-
-    msg = await update.message.reply_text("✂️ Removing background…")
+    msg = await update.message.reply_text("Removing background...")
     await update.effective_chat.send_action(ChatAction.UPLOAD_DOCUMENT)
-
     try:
         img = await tg_photo_to_b64(file_id, ctx.bot)
         pred = await replicate_create(
@@ -413,14 +404,13 @@ async def cmd_removebg(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             raise ValueError("No output returned")
         data = await fetch_bytes(url)
         await msg.delete()
-        # Send as document to preserve PNG transparency
         await update.message.reply_document(
             document=InputFile(io.BytesIO(data), filename="no-background.png"),
-            caption="✂️ Background removed — PNG with transparency",
+            caption="Background removed - PNG with transparency",
         )
     except Exception as e:
         log.exception("removebg failed")
-        await msg.edit_text(f"⚠️ {e}")
+        await msg.edit_text(f"Error: {e}")
 
 
 # ─── /restore ────────────────────────────────────────────────────────────────
@@ -429,16 +419,14 @@ async def cmd_restore(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
     key = get_key(uid)
     if not key:
-        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN_V2)
+        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN)
         return
     file_id = pending_photo.get(uid)
     if not file_id:
-        await update.message.reply_text("Send a photo first, then use `/restore`.", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text("Send a photo first, then use /restore.")
         return
-
-    msg = await update.message.reply_text("✨ Restoring & enhancing…")
+    msg = await update.message.reply_text("Restoring & enhancing...")
     await update.effective_chat.send_action(ChatAction.UPLOAD_PHOTO)
-
     try:
         img = await tg_photo_to_b64(file_id, ctx.bot)
         pred = await replicate_create(
@@ -453,11 +441,11 @@ async def cmd_restore(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await msg.delete()
         await update.message.reply_photo(
             photo=InputFile(io.BytesIO(data), filename="restored.png"),
-            caption="✨ Restored & enhanced",
+            caption="Restored & enhanced",
         )
     except Exception as e:
         log.exception("restore failed")
-        await msg.edit_text(f"⚠️ {e}")
+        await msg.edit_text(f"Error: {e}")
 
 
 # ─── /repaint ────────────────────────────────────────────────────────────────
@@ -466,24 +454,20 @@ async def cmd_repaint(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
     key = get_key(uid)
     if not key:
-        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN_V2)
+        await update.message.reply_text(need_key_msg(), parse_mode=ParseMode.MARKDOWN)
         return
-
     instruction = " ".join(ctx.args).strip()
     if not instruction:
         await update.message.reply_text(
-            "Usage: `/repaint replace the background with a sunny beach`",
-            parse_mode=ParseMode.MARKDOWN,
+            "Usage: /repaint replace the background with a sunny beach"
         )
         return
     file_id = pending_photo.get(uid)
     if not file_id:
-        await update.message.reply_text("Send a photo first, then use `/repaint <instruction>`.", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text("Send a photo first, then use /repaint <instruction>.")
         return
-
-    msg = await update.message.reply_text("🖌️ Repainting…")
+    msg = await update.message.reply_text("Repainting...")
     await update.effective_chat.send_action(ChatAction.UPLOAD_PHOTO)
-
     try:
         img = await tg_photo_to_b64(file_id, ctx.bot)
         pred = await replicate_create(
@@ -503,11 +487,11 @@ async def cmd_repaint(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await msg.delete()
         await update.message.reply_photo(
             photo=InputFile(io.BytesIO(data), filename="repainted.png"),
-            caption=f"🖌️ {instruction[:900]}",
+            caption=instruction[:900],
         )
     except Exception as e:
         log.exception("repaint failed")
-        await msg.edit_text(f"⚠️ {e}")
+        await msg.edit_text(f"Error: {e}")
 
 
 # ─── Bot setup ────────────────────────────────────────────────────────────────
@@ -517,19 +501,24 @@ async def post_init(app: Application) -> None:
         BotCommand("start",     "Welcome & quick start"),
         BotCommand("help",      "All commands"),
         BotCommand("setkey",    "Save your Replicate API key"),
-        BotCommand("imagine",   "Text → image (square)"),
-        BotCommand("imagine16", "Text → image (16:9 landscape)"),
-        BotCommand("imagine9",  "Text → image (9:16 portrait)"),
-        BotCommand("video",     "Text → video clip"),
-        BotCommand("animate",   "Photo → animation"),
-        BotCommand("upscale",   "Photo → upscaled 4×"),
-        BotCommand("removebg",  "Photo → transparent background"),
-        BotCommand("restore",   "Photo → face restoration"),
-        BotCommand("repaint",   "Photo → AI repaint"),
+        BotCommand("imagine",   "Text to image (square)"),
+        BotCommand("imagine16", "Text to image (16:9)"),
+        BotCommand("imagine9",  "Text to image (9:16)"),
+        BotCommand("video",     "Text to video clip"),
+        BotCommand("animate",   "Photo to animation"),
+        BotCommand("upscale",   "Photo upscaled 4x"),
+        BotCommand("removebg",  "Photo with background removed"),
+        BotCommand("restore",   "Photo with face restoration"),
+        BotCommand("repaint",   "Photo repainted with AI"),
     ])
 
 
 def main() -> None:
+    # Railway (and similar platforms) require something bound to $PORT.
+    # We run a tiny health-check server in a background thread so the
+    # platform is happy, while the bot itself uses long-polling.
+    threading.Thread(target=_start_health_server, daemon=True).start()
+
     app = (
         Application.builder()
         .token(BOT_TOKEN)
@@ -537,21 +526,20 @@ def main() -> None:
         .build()
     )
 
-    app.add_handler(CommandHandler("start",              cmd_start))
-    app.add_handler(CommandHandler("help",               cmd_help))
-    app.add_handler(CommandHandler("setkey",             cmd_setkey))
-    app.add_handler(CommandHandler(["imagine",
-                                    "imagine16",
-                                    "imagine9"],          cmd_imagine))
-    app.add_handler(CommandHandler("video",              cmd_video))
-    app.add_handler(CommandHandler("animate",            cmd_animate))
-    app.add_handler(CommandHandler("upscale",            cmd_upscale))
-    app.add_handler(CommandHandler("removebg",           cmd_removebg))
-    app.add_handler(CommandHandler("restore",            cmd_restore))
-    app.add_handler(CommandHandler("repaint",            cmd_repaint))
-    app.add_handler(MessageHandler(filters.PHOTO,        handle_photo))
+    app.add_handler(CommandHandler("start",                        cmd_start))
+    app.add_handler(CommandHandler("help",                         cmd_help))
+    app.add_handler(CommandHandler("setkey",                       cmd_setkey))
+    app.add_handler(CommandHandler(["imagine", "imagine16",
+                                    "imagine9"],                    cmd_imagine))
+    app.add_handler(CommandHandler("video",                        cmd_video))
+    app.add_handler(CommandHandler("animate",                      cmd_animate))
+    app.add_handler(CommandHandler("upscale",                      cmd_upscale))
+    app.add_handler(CommandHandler("removebg",                     cmd_removebg))
+    app.add_handler(CommandHandler("restore",                      cmd_restore))
+    app.add_handler(CommandHandler("repaint",                      cmd_repaint))
+    app.add_handler(MessageHandler(filters.PHOTO,                  handle_photo))
 
-    log.info("Bot starting…")
+    log.info("Bot polling...")
     app.run_polling(allowed_updates=["message"])
 
 
